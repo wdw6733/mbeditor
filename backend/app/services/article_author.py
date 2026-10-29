@@ -213,6 +213,15 @@ def generate_article(
 
     markdown = "".join(body_parts)
     title, markdown = _split_title_body(markdown)
+    # 正文过短防护:思考型模型(deepseek-reasoner / v4-pro 等)的思考过程也计入
+    # max_tokens,正文刚写完标题就被截断。不保存残文,给可行动的提示。
+    if len(markdown.strip()) < 150:
+        emit(error_event(
+            "validate_failed",
+            "AI 只输出了很短的内容(输出配额可能被思考过程耗尽),"
+            "建议在设置里换用 deepseek-chat 等非思考模型后重试",
+        ))
+        return
     emit(stage_event("行文", "done", f"约 {len(markdown)} 字"))
 
     # 3.5) 配图:扫描 [[SVG|描述]] 占位,逐个生成微信安全 SVG 并替换。

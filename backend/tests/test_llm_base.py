@@ -19,8 +19,8 @@ def test_modelspec_defaults():
     spec = ModelSpec(provider="openai_compat", model="deepseek-chat")
     assert spec.base_url == ""
     assert spec.api_key == ""
-    assert spec.timeout == 60.0
-    assert spec.max_tokens == 4096
+    assert spec.timeout == 120.0
+    assert spec.max_tokens == 16384
 
 
 def test_modelspec_frozen():

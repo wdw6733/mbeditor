@@ -104,6 +104,9 @@ def _chapter_num2(n: int) -> str:
 _H1_RE = re.compile(r"^#\s+(.*)$")
 _H2_RE = re.compile(r"^##\s+(.*)$")
 _QUOTE_RE = re.compile(r"^>\s?(.*)$")
+# Markdown 表格行:| a | b | 分隔线 |---|---| 单独过滤。
+_TABLE_ROW_RE = re.compile(r"^\|.*\|\s*$")
+_TABLE_SEP_RE = re.compile(r"^\|[\s:\-|]+\|$")
 # 配图工序插入的原始 SVG/HTML 块(单行,以标签开头)。原样保留、不转义——
 # 这些块由 generate_svg_block 产出且已过 svg_validator 硬闸。
 _RAW_RE = re.compile(r"^<(svg|section|div|figure|img)[\s>]")
@@ -164,6 +167,20 @@ def _split_blocks(markdown: str) -> list[tuple[str, str]]:
             i += 1
             continue
 
+        # Markdown 表格:连续 | 行收为一个 table 块(分隔线行过滤)。
+        if _TABLE_ROW_RE.match(line.strip()):
+            flush_p()
+            flush_q()
+            rows: list[str] = []
+            while i < len(lines) and _TABLE_ROW_RE.match(lines[i].strip()):
+                row = lines[i].strip()
+                if not _TABLE_SEP_RE.match(row):
+                    rows.append(row)
+                i += 1
+            if rows:
+                blocks.append(("table", "\n".join(rows)))
+            continue
+
         mq = _QUOTE_RE.match(line)
         m2 = _H2_RE.match(line)
         m1 = _H1_RE.match(line)
@@ -207,6 +224,47 @@ def _render_code(text: str, shell: dict[str, str]) -> str:
         f'font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.7;'
         f'white-space:pre-wrap;word-break:break-all;">{_esc(code)}</pre>'
         '</section>'
+    )
+
+
+def _render_table(text: str, shell: dict[str, str]) -> str:
+    """Markdown 表格渲染:内联样式 <table>,表头反色 + 隔行交替底。
+    微信编辑器支持带内联样式的 table;单元格内容经 _esc 转义,过 svg_validator 零 issue。"""
+    rows = [r for r in (text or "").splitlines() if r.strip()]
+    if not rows:
+        return ""
+    parsed = [
+        [c.strip() for c in row.strip().strip("|").split("|")]
+        for row in rows
+    ]
+    ncol = max(len(r) for r in parsed)
+    # 补齐短行的空单元格
+    for r in parsed:
+        r.extend([""] * (ncol - len(r)))
+    dark = shell["paper"] == "#0f1117"
+    head_bg = "#1b2333" if dark else "#eef1f5"
+    head_fg = "#e8eef7" if dark else "#1f242c"
+    alt_bg = "#141926" if dark else "#f7f9fb"
+    border = "#2a3348" if dark else "#d7dde5"
+    ink = shell["ink"]
+    head = "".join(
+        f'<td style="border:1px solid {border};padding:8px 10px;background-color:{head_bg};'
+        f'color:{head_fg};font-weight:bold;text-align:left;line-height:1.6;">{_esc(c)}</td>'
+        for c in parsed[0]
+    )
+    body_rows = []
+    for ri, row in enumerate(parsed[1:]):
+        bg = alt_bg if ri % 2 == 1 else "transparent"
+        tds = "".join(
+            f'<td style="border:1px solid {border};padding:8px 10px;color:{ink};'
+            f'line-height:1.6;background-color:{bg};">{_esc(c)}</td>'
+            for c in row
+        )
+        body_rows.append(f"<tr>{tds}</tr>")
+    return (
+        '<section style="margin:10px 26px 18px;">'
+        f'<table style="width:100%;border-collapse:collapse;font-size:13.5px;">'
+        f"<tr>{head}</tr>{''.join(body_rows)}</table></section>"
     )
 
 
@@ -582,6 +640,8 @@ def _render_rich(markdown: str, shell: dict[str, str], kind: str = "literary") -
             parts.append(r["quote"](text, shell))
         elif blk_kind == "code":
             parts.append(_render_code(text, shell))
+        elif blk_kind == "table":
+            parts.append(_render_table(text, shell))
         elif blk_kind == "raw":
             parts.append(text)   # 配图 SVG/HTML:原样保留(已过校验闸)
         else:
@@ -597,6 +657,9 @@ def _render_plain(markdown: str, shell: dict[str, str]) -> str:
     for kind, text in _split_blocks(markdown):
         if kind == "raw":
             continue   # 纯净版不输出 SVG/HTML 配图
+        if kind == "table":
+            parts.append(_render_table(text, shell))
+            continue
         if kind == "code":
             code = text
             if "\n" in text:

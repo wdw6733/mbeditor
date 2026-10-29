@@ -115,7 +115,7 @@ def _body_events(text: str) -> list[StreamEvent]:
 
 
 def test_happy_path_full_stage_sequence_and_done(monkeypatch):
-    md = "# 海洋馆的两小时\n\n上周末带娃去海洋馆。\n\n第二段。"
+    md = "# 海洋馆的两小时\n\n" + "上周末带娃去海洋馆,水母馆的灯一明一灭,孩子看得挪不动步。" * 5
     provider = _MockProvider(None, _body_events(md))
     _patch_provider(monkeypatch, provider)
     monkeypatch.setattr(article_author.settings, "AIGC_LABEL_ENABLED", False)
@@ -138,7 +138,7 @@ def test_happy_path_full_stage_sequence_and_done(monkeypatch):
 
     done = events[-1]
     assert done["html"].startswith("<section")
-    assert "上周末带娃去海洋馆。" in done["html"]
+    assert "水母馆的灯一明一灭" in done["html"]
     assert done["markdown"] == md
     assert "issues" in done["report"]
     assert done["aigc"] is False
@@ -165,7 +165,7 @@ def test_provider_title_event_used_when_present(monkeypatch):
 
 
 def test_aigc_label_applied_when_enabled(monkeypatch):
-    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n正文。")))
+    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n" + "这里是一段足够长的正文内容,确保超过一百五十字的最低长度门槛,不会被过短防护拦截。" * 4)))
     monkeypatch.setattr(article_author.settings, "AIGC_LABEL_ENABLED", True)
     # aigc_label 读自己模块的 settings,需一并打开。
     monkeypatch.setattr(article_author.aigc_label.settings, "AIGC_LABEL_ENABLED", True)
@@ -206,7 +206,7 @@ def test_stream_refusal_emits_llm_refusal(monkeypatch):
 
 def test_safety_block_when_enabled_high_risk(monkeypatch):
     from app.services.content_safety import SafetyVerdict
-    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n正文。")))
+    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n" + "这里是一段足够长的正文内容,确保超过一百五十字的最低长度门槛,不会被过短防护拦截。" * 4)))
     monkeypatch.setattr(article_author.settings, "AIGC_LABEL_ENABLED", False)
     # article_author 通过 content_safety.review 间接调用,patch 其引用的模块属性。
     monkeypatch.setattr(
@@ -228,7 +228,7 @@ def test_degrade_to_plain_when_template_output_has_issue(monkeypatch):
     bad_html = '<section><script>x()</script>正文不应泄漏</section>'
     monkeypatch.setattr(article_author.layout_composer, "compose",
                         lambda md, *, template_id: bad_html)
-    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n安全正文。")))
+    _patch_provider(monkeypatch, _MockProvider(None, _body_events("# t\n\n" + "安全正文内容重复多次以确保长度超过一百五十字的过短防护阈值,让测试聚焦在安全闸与降级逻辑上。" * 5)))
     monkeypatch.setattr(article_author.settings, "AIGC_LABEL_ENABLED", False)
     emit, parsed = _collect()
     generate_article("x", "行业同行", "克制高级", emit=emit)
@@ -241,7 +241,7 @@ def test_degrade_to_plain_when_template_output_has_issue(monkeypatch):
 def test_title_first_fallback_when_stream_has_no_newline(monkeypatch):
     # 极端:provider 纯 token 流且整篇无换行——title-first 的「流末兜底」分支应仍
     # 保证 title 在首个 token 前(从全文抽首句前 24 字),且所有 char 逐字 emit。
-    body = "没有任何换行的一整行正文内容用于触发流末兜底分支"
+    body = "没有任何换行的一整行正文内容用于触发流末兜底分支" * 8
     _patch_provider(monkeypatch, _MockProvider(None, _body_events(body)))
     monkeypatch.setattr(article_author.settings, "AIGC_LABEL_ENABLED", False)
     emit, parsed = _collect()

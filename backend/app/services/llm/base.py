@@ -23,8 +23,10 @@ class ModelSpec:
     model: str             # 如 "deepseek-chat" / "claude-opus-4-8"
     base_url: str = ""     # openai_compat 必填;anthropic 留空走 SDK 默认
     api_key: str = ""      # BYOK 密钥;anthropic 也可留空走 env ANTHROPIC_API_KEY
-    timeout: float = 60.0  # 流式正文比结构化更长,默认 60s
-    max_tokens: int = 4096
+    timeout: float = 120.0  # 思考型模型首 token 前有长推理,120s 防 read 超时
+    # 16384:思考型模型(deepseek-reasoner / v4-pro 等)的思考过程也计入
+    # max_tokens,4096 会被思考耗尽导致正文刚写完标题就被截断(只出标题)。
+    max_tokens: int = 16384
 
 
 @dataclass(frozen=True)
