@@ -32,7 +32,12 @@ interface ComposeSurfaceProps {
 }
 
 const surfaceStyle: CSSProperties = {
-  minHeight: "calc(100vh - var(--topbar-h))",
+  // 锁定高度:父级 Shell 内容行(1fr)已有确定高度,height:100% 填满它,
+  // 让各 phase 根容器 flex:1 + minHeight:0 的「内部滚动」约定真正生效。
+  // 原先用 minHeight 会让整页随内容撑高、被 body overflow:hidden 裁掉,
+  // 造成问卷页滚不动、右下角「开始写」够不着(只能缩放浏览器)。
+  height: "100%",
+  overflowY: "auto",
   background: "var(--bg)",
   color: "var(--ink)",
   fontFamily: "var(--f-sans)",
