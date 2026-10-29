@@ -16,7 +16,8 @@ from pydantic import BaseModel, Field
 from app.core.response import success
 from app.services import anthropic_client, article_author
 from app.services.agent_svg_prompt import generate_svg_block
-from app.services.llm.provider_store import LLMProviderConfig
+from app.services.llm.base import build_provider
+from app.services.llm.provider_store import LLMProviderConfig, resolve_spec
 from app.services.sse_events import error_event
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -28,11 +29,18 @@ class GenerateSvgReq(BaseModel):
 
 @router.post("/generate-svg")
 async def generate_svg(req: GenerateSvgReq):
-    # LLM path activates automatically once ANTHROPIC_API_KEY is set;
-    # otherwise we fall back to the deterministic template stub. See
-    # app.services.agent_svg_prompt for both contracts.
-    llm_available = anthropic_client.llm_is_available()
-    result = generate_svg_block(req.prompt, llm_available=llm_available)
+    # LLM 可用性 = 旧 Anthropic 客户端 OR BYOK provider(openai_compat / anthropic)。
+    # 两者一并传给 generate_svg_block:内部优先走 BYOK provider(用户配的
+    # 通义/智谱/Kimi/DeepSeek 等),不可用时回落到仅认 ANTHROPIC_API_KEY 的旧客户端,
+    # 都不可用才落模板桩。这样 SVG 生成与正文写作共用同一套 BYOK 配置。
+    try:
+        provider = build_provider(resolve_spec(None))
+        byok_available = provider.is_available()
+    except Exception:
+        provider = None
+        byok_available = False
+    llm_available = anthropic_client.llm_is_available() or byok_available
+    result = generate_svg_block(req.prompt, llm_available=llm_available, provider=provider)
     return success(result)
 
 

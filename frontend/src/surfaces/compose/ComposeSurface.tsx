@@ -16,7 +16,7 @@ import { loadDraft, saveDraft } from "./composeDraft";
 export type ComposePhase = "intent" | "asking" | "connect" | "generating" | "done";
 
 export type Audience = "生活同好" | "行业同行" | "路人泛读";
-export type Tone = "温柔治愈" | "干货利落" | "俏皮带梗" | "克制高级";
+export type Tone = "温柔治愈" | "干货利落" | "俏皮带梗" | "克制高级" | "技术干货";
 
 export interface ComposeAnswers {
   intent: string;

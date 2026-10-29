@@ -104,11 +104,15 @@ def _chapter_num2(n: int) -> str:
 _H1_RE = re.compile(r"^#\s+(.*)$")
 _H2_RE = re.compile(r"^##\s+(.*)$")
 _QUOTE_RE = re.compile(r"^>\s?(.*)$")
+# 配图工序插入的原始 SVG/HTML 块(单行,以标签开头)。原样保留、不转义——
+# 这些块由 generate_svg_block 产出且已过 svg_validator 硬闸。
+_RAW_RE = re.compile(r"^<(svg|section|div|figure|img)[\s>]")
 
 
 def _split_blocks(markdown: str) -> list[tuple[str, str]]:
-    """把 Markdown 切成 (kind, text) 块。kind ∈ {'h1','h2','p','quote'}。
-    空行分段;连续 > 行合并为一个引用块。"""
+    """把 Markdown 切成 (kind, text) 块。kind ∈ {'h1','h2','p','quote','code','raw'}。
+    空行分段;连续 > 行合并为一个引用块;``` 围栏合并为代码块(首行为语言标识);
+    以 <tag 开头的单行(配图插入的原始 SVG/HTML)原样保留为 raw 块。"""
     blocks: list[tuple[str, str]] = []
     pbuf: list[str] = []
     qbuf: list[str] = []
@@ -127,12 +131,39 @@ def _split_blocks(markdown: str) -> list[tuple[str, str]]:
                 blocks.append(("quote", text))
             qbuf.clear()
 
-    for raw in (markdown or "").splitlines():
-        line = raw.rstrip()
+    lines = (markdown or "").splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].rstrip()
         if not line.strip():
             flush_p()
             flush_q()
+            i += 1
             continue
+
+        # ``` 代码围栏:首行语言标识 + 后续代码行,直到闭合围栏。
+        if line.strip().startswith("```"):
+            flush_p()
+            flush_q()
+            lang = line.strip()[3:].strip()
+            code_lines: list[str] = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                code_lines.append(lines[i])
+                i += 1
+            if i < len(lines):  # 跳过闭合围栏
+                i += 1
+            blocks.append(("code", (lang + "\n" + "\n".join(code_lines)).strip()))
+            continue
+
+        # 原始 SVG/HTML 单行块(配图工序插入):原样保留。
+        if _RAW_RE.match(line.strip()):
+            flush_p()
+            flush_q()
+            blocks.append(("raw", line.strip()))
+            i += 1
+            continue
+
         mq = _QUOTE_RE.match(line)
         m2 = _H2_RE.match(line)
         m1 = _H1_RE.match(line)
@@ -150,9 +181,33 @@ def _split_blocks(markdown: str) -> list[tuple[str, str]]:
         else:
             flush_q()
             pbuf.append(line)
+        i += 1
     flush_p()
     flush_q()
     return blocks
+
+
+def _render_code(text: str, shell: dict[str, str]) -> str:
+    """代码块渲染:剥离首行语言标识,等宽字体 + 深/浅底。代码内容经 _esc 转义
+    (过 svg_validator 零 issue),空格/换行靠 pre-wrap 保留。"""
+    body = text
+    if "\n" in text:
+        first, rest = text.split("\n", 1)
+        if first.strip() and not first.strip().startswith("#"):
+            body = rest
+    code = body.strip("\n")
+    dark = shell["paper"] == "#0f1117"
+    bg = "#0d0f14" if dark else "#f2f3f5"
+    fg = "#c9d4e3" if dark else "#26292e"
+    accent = shell["accent"]
+    return (
+        '<section style="margin:10px 26px 18px;">'
+        f'<pre style="background-color:{bg};color:{fg};padding:14px 16px;'
+        f'border-left:3px solid {accent};border-radius:6px;overflow-x:auto;'
+        f'font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.7;'
+        f'white-space:pre-wrap;word-break:break-all;">{_esc(code)}</pre>'
+        '</section>'
+    )
 
 
 def _svg_divider(shell: dict[str, str]) -> str:
@@ -525,6 +580,10 @@ def _render_rich(markdown: str, shell: dict[str, str], kind: str = "literary") -
             parts.append(r["h2"](text, chapter, shell))
         elif blk_kind == "quote":
             parts.append(r["quote"](text, shell))
+        elif blk_kind == "code":
+            parts.append(_render_code(text, shell))
+        elif blk_kind == "raw":
+            parts.append(text)   # 配图 SVG/HTML:原样保留(已过校验闸)
         else:
             parts.append(r["p"](text, shell))
     parts.append(r["footer"](shell))
@@ -536,6 +595,22 @@ def _render_plain(markdown: str, shell: dict[str, str]) -> str:
     """纯净版:白纸黑字、无 SVG、无 <style>。自检不过兜底。"""
     parts: list[str] = [f'<section style="background-color:{shell["paper"]};padding:28px 24px;">']
     for kind, text in _split_blocks(markdown):
+        if kind == "raw":
+            continue   # 纯净版不输出 SVG/HTML 配图
+        if kind == "code":
+            code = text
+            if "\n" in text:
+                first, rest = text.split("\n", 1)
+                if first.strip() and not first.strip().startswith("#"):
+                    code = rest
+            parts.append(
+                f'<section style="margin:10px 0 18px;">'
+                f'<pre style="background-color:#f2f3f5;color:#26292e;padding:12px 14px;'
+                f'border-left:3px solid {shell["accent"]};border-radius:6px;'
+                f'font-family:Menlo,Consolas,monospace;font-size:13px;line-height:1.7;'
+                f'white-space:pre-wrap;word-break:break-all;">{_esc(code.strip(chr(10)))}</pre></section>'
+            )
+            continue
         safe = _esc(text)
         if kind == "h1":
             parts.append(

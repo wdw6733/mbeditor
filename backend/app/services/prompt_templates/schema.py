@@ -6,10 +6,11 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
-# 七意图(spec §5.5)。article_author 据 audience+tone 选 "正文起草"。
+# 意图(spec §5.5)。article_author 据 audience+tone 选 "正文起草";
+# 「技术干货」tone 选 "技术正文起草"(安卓/容器/网络技术教程)。
 Intent = Literal[
     "选题灵感", "标题生成", "正文起草", "正文终稿",
-    "改写换语气", "摘要", "封面文案",
+    "改写换语气", "摘要", "封面文案", "技术正文起草",
 ]
 OutputMode = Literal["text", "markdown", "structured"]
 

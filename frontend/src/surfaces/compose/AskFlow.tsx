@@ -15,6 +15,7 @@ const TONES: { name: Tone; desc: string }[] = [
   { name: "干货利落", desc: "条理分明、好读" },
   { name: "俏皮带梗", desc: "轻松活泼一点" },
   { name: "克制高级", desc: "讲究字句和留白" },
+  { name: "技术干货", desc: "命令代码、可照做" },
 ];
 
 interface AskFlowProps {

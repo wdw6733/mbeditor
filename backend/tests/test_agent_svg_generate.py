@@ -168,7 +168,7 @@ def test_endpoint_returns_200_with_ok_status_on_success(client, monkeypatch):
 def test_endpoint_returns_200_even_on_failed_generation(client, monkeypatch):
     # Force the underlying helper to always return dirty html, bypassing
     # the template fallback path.
-    def always_dirty(prompt: str, *, llm_available: bool = False):
+    def always_dirty(prompt: str, *, llm_available: bool = False, provider=None):
         return {
             "status": "failed",
             "html": "",

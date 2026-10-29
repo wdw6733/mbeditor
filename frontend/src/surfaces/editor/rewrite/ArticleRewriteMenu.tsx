@@ -20,7 +20,7 @@ import { getLlmConfig } from "@/surfaces/settings/llmApi";
 import type { AgentEvent, AgentRewriteDoneEvent } from "@/types/agent";
 import type { EditorDraft, EditorField } from "@/types";
 
-const TONES = ["温柔治愈", "干货利落", "俏皮带梗", "克制高级"] as const;
+const TONES = ["温柔治愈", "干货利落", "俏皮带梗", "克制高级", "技术干货"] as const;
 const LENGTH_PRESETS = [800, 1200] as const;
 
 /** html -> 纯文本(块级闭合转换行),作轻改(标题/摘要)的重写母本/上下文。 */

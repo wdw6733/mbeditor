@@ -245,7 +245,7 @@ def _format_feedback(report: dict[str, Any]) -> str:
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def generate_svg_block(user_prompt: str, *, llm_available: bool = False) -> dict[str, Any]:
+def generate_svg_block(user_prompt: str, *, llm_available: bool = False, provider: Any = None) -> dict[str, Any]:
     """Run the generate → validate → (retry once) loop.
 
     Args:
@@ -254,6 +254,9 @@ def generate_svg_block(user_prompt: str, *, llm_available: bool = False) -> dict
             surface that the html came from a template fallback rather
             than a real LLM call. The validation behavior is identical
             either way.
+        provider: 可选的 BYOK LLMProvider 实例。传入且可用时,真实 LLM 路径
+            (prompt -> DSL -> render_dsl) 走该 provider(openai_compat / anthropic),
+            替代仅认 ANTHROPIC_API_KEY 的旧客户端。
 
     Returns:
         dict with keys:
@@ -278,7 +281,7 @@ def generate_svg_block(user_prompt: str, *, llm_available: bool = False) -> dict
     # clamping, deterministic templating) is bypassed. Override ``call_llm``
     # only in trusted/test contexts, never to relay untrusted raw SVG.
     if llm_available and call_llm is _stub_llm_call:
-        return _generate_via_llm(user_prompt)
+        return _generate_via_llm(user_prompt, provider)
 
     agent_warnings: list[dict[str, str]] = []
     if not llm_available:
@@ -365,13 +368,16 @@ def _map_llm_error(exc: Exception) -> dict[str, str]:
     return {"kind": "llm-error", "message": "AI 服务暂时不可用，请稍后再试"}
 
 
-def _generate_via_llm(user_prompt: str) -> dict[str, Any]:
+def _generate_via_llm(user_prompt: str, provider: Any = None) -> dict[str, Any]:
     """Drive the real LLM: prompt -> DSL -> deterministic render -> validate.
 
     Runs AT MOST 2 LLM calls (initial + 1 retry). Only a validator-reject
     (render_dsl returns issues) triggers the retry — every LLM-level error
     (timeout / rate-limit / refusal / schema / server) fails fast without a
     second call. All exceptions are caught here: this never raises to FastAPI.
+
+    ``provider`` 传入且可用时走 BYOK provider(openai_compat / anthropic),
+    否则回落到仅认 ANTHROPIC_API_KEY 的旧客户端。
     """
     system_prompt = LLM_SYSTEM_PROMPT()
     report: dict[str, Any] = _empty_report()
@@ -382,9 +388,12 @@ def _generate_via_llm(user_prompt: str) -> dict[str, Any]:
         user_msg = user_prompt if not feedback else f"{user_prompt}\n\n{feedback}"
         attempts += 1
         try:
-            dsl = anthropic_client.call_structured(
-                system_prompt, user_msg, DSL_SCHEMA
-            )
+            if provider is not None and provider.is_available():
+                dsl = provider.call_structured(system_prompt, user_msg, DSL_SCHEMA)
+            else:
+                dsl = anthropic_client.call_structured(
+                    system_prompt, user_msg, DSL_SCHEMA
+                )
         except Exception as exc:  # normalized LLM* errors — never retry
             warning = _map_llm_error(exc)
             return {

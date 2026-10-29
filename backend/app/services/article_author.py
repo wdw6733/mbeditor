@@ -7,6 +7,7 @@ emit 收一条已序列化好的 SSE 帧(sse_events.* 产物)。本函数永不�
 """
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional
 
 from app.core.config import settings
@@ -34,6 +35,7 @@ _TONE_TO_TEMPLATE: dict[str, str] = {
     "干货利落": "tpl_biz_minimal",
     "俏皮带梗": "tpl_vibrant",
     "克制高级": "tpl_magazine",
+    "技术干货": "tpl_tech_neon",
 }
 _DEFAULT_TEMPLATE = "tpl_literary"
 
@@ -65,6 +67,40 @@ def map_llm_error(exc: Exception) -> tuple[str, str]:
 
 def _template_id_for(tone: str) -> str:
     return _TONE_TO_TEMPLATE.get(tone, _DEFAULT_TEMPLATE)
+
+
+def _prompt_intent_for(tone: str) -> str:
+    """技术干货 tone 走技术文章专用 prompt(命令/代码/配图),其余走通用正文起草。"""
+    return "技术正文起草" if tone == "技术干货" else "正文起草"
+
+
+# 配图占位标记:[[SVG|一句话中文描述]]。由技术文章 prompt 引导 AI 输出。
+_SVG_PLACEHOLDER_RE = re.compile(r"\[\[SVG\|([^\]]+)\]\]")
+
+
+def _fill_svg_placeholders(markdown: str, provider) -> str:
+    """把 [[SVG|描述]] 占位替换成 AI 生成的微信安全 SVG 块(架构图/拓扑图等)。
+
+    生成失败或未配置 provider 时静默降级为空(去掉占位),绝不打断正文。
+    产出压成单行,便于 layout_composer 作为 raw 块原样保留。
+    """
+    def _replace(match: "re.Match") -> str:
+        desc = match.group(1).strip()
+        if not desc:
+            return ""
+        try:
+            from app.services.agent_svg_prompt import generate_svg_block
+            result = generate_svg_block(
+                desc, llm_available=provider.is_available(), provider=provider
+            )
+            if result.get("status") == "ok" and result.get("html"):
+                html = re.sub(r"\s+", " ", result["html"]).strip()
+                return "\n\n" + html + "\n\n"
+        except Exception:
+            pass
+        return ""
+
+    return _SVG_PLACEHOLDER_RE.sub(_replace, markdown)
 
 
 def _split_title_body(markdown: str) -> tuple[str, str]:
@@ -99,7 +135,7 @@ def generate_article(
     emit(stage_event("立意", "active"))
     template_id = _template_id_for(tone)
     try:
-        tpl = get_template("正文起草")
+        tpl = get_template(_prompt_intent_for(tone))
     except Exception:
         tpl = None
     emit(stage_event("立意", "done", f"调子：{tone or '默认'}"))
@@ -178,6 +214,12 @@ def generate_article(
     markdown = "".join(body_parts)
     title, markdown = _split_title_body(markdown)
     emit(stage_event("行文", "done", f"约 {len(markdown)} 字"))
+
+    # 3.5) 配图:扫描 [[SVG|描述]] 占位,逐个生成微信安全 SVG 并替换。
+    if "[[SVG|" in markdown:
+        emit(stage_event("配图", "active"))
+        markdown = _fill_svg_placeholders(markdown, provider)
+        emit(stage_event("配图", "done"))
 
     # 4) 制版:套排版模板
     emit(stage_event("制版", "active"))
